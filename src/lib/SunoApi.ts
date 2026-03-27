@@ -122,24 +122,7 @@ class SunoApi {
 
   public async init(): Promise<SunoApi> {
     //await this.getClerkLatestVersion();
-    await this.private async getAuthToken() {
-  logger.info('Getting the session ID');
-  if (this.cookies.__session && !this.cookies.__client) {
-    try {
-      const payload = JSON.parse(Buffer.from(this.cookies.__session.split('.')[1], 'base64').toString());
-      if (payload.sid) { this.sid = payload.sid; return; }
-    } catch (e) { logger.warn('Failed to decode __session JWT'); }
-  }
-  const getSessionUrl = `${SunoApi.CLERK_BASE_URL}/v1/client?__clerk_api_version=2025-11-10&_clerk_js_version=${SunoApi.CLERK_VERSION}`;
-  const sessionResponse = await this.client.get(getSessionUrl, {
-    headers: { Authorization: this.cookies.__client }
-  });
-  if (!sessionResponse?.data?.response?.last_active_session_id) {
-    throw new Error('Failed to get session id, you may need to update the SUNO_COOKIE');
-  }
-  this.sid = sessionResponse.data.response.last_active_session_id;
-}
-;
+    await this.getAuthToken();
     await this.keepAlive();
     return this;
   }
@@ -168,18 +151,28 @@ class SunoApi {
    */
   private async getAuthToken() {
     logger.info('Getting the session ID');
-    // URL to get session ID
+    // Try new __session JWT flow (Suno no longer issues __client cookies)
+    if (this.cookies.__session && !this.cookies.__client) {
+      try {
+        const payload = JSON.parse(Buffer.from(this.cookies.__session.split('.')[1], 'base64').toString());
+        if (payload.sid) {
+          this.sid = payload.sid;
+          return;
+        }
+      } catch (e) {
+        logger.warn('Failed to decode __session JWT, falling back to Clerk flow');
+      }
+    }
+    // Legacy __client flow
     const getSessionUrl = `${SunoApi.CLERK_BASE_URL}/v1/client?__clerk_api_version=2025-11-10&_clerk_js_version=${SunoApi.CLERK_VERSION}`;
-    // Get session ID
     const sessionResponse = await this.client.get(getSessionUrl, {
       headers: { Authorization: this.cookies.__client }
     });
     if (!sessionResponse?.data?.response?.last_active_session_id) {
       throw new Error(
-        'const resolvedCookie = cookie && (cookie.includes('__client') || cookie.includes('__session')) ? cookie : process.env.SUNO_COOKIE;, you may need to update the SUNO_COOKIE'
+        'Failed to get session id, you may need to update the SUNO_COOKIE'
       );
     }
-    // Save session ID for later use
     this.sid = sessionResponse.data.response.last_active_session_id;
   }
 
@@ -190,6 +183,12 @@ class SunoApi {
   public async keepAlive(isWait?: boolean): Promise<void> {
     if (!this.sid) {
       throw new Error('Session ID is not set. Cannot renew token.');
+    }
+    // If using __session directly (no __client), use it as the token
+    if (this.cookies.__session && !this.cookies.__client) {
+      this.currentToken = this.cookies.__session;
+      if (isWait) { await sleep(1, 2); }
+      return;
     }
     // URL to renew session token
     const renewUrl = `${SunoApi.CLERK_BASE_URL}/v1/client/sessions/${this.sid}/tokens?__clerk_api_version=2025-11-10&_clerk_js_version=${SunoApi.CLERK_VERSION}`;
@@ -867,7 +866,7 @@ class SunoApi {
 }
 
 export const sunoApi = async (cookie?: string) => {
-  const resolvedCookie = cookie && cookie.includes('__client') ? cookie : process.env.SUNO_COOKIE; // Check for bad `Cookie` header (It's too expensive to actually parse the cookies *here*)
+  const resolvedCookie = cookie && (cookie.includes('__client') || cookie.includes('__session')) ? cookie : process.env.SUNO_COOKIE; // Check for bad `Cookie` header (It's too expensive to actually parse the cookies *here*)
   if (!resolvedCookie) {
     logger.info('No cookie provided! Aborting...\nPlease provide a cookie either in the .env file or in the Cookie header of your request.')
     throw new Error('Please provide a cookie either in the .env file or in the Cookie header of your request.');
