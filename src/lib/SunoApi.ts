@@ -159,7 +159,7 @@ class SunoApi {
     });
     if (!sessionResponse?.data?.response?.last_active_session_id) {
       throw new Error(
-        'Failed to get session id, you may need to update the SUNO_COOKIE'
+        'const resolvedCookie = cookie && (cookie.includes('__client') || cookie.includes('__session')) ? cookie : process.env.SUNO_COOKIE;, you may need to update the SUNO_COOKIE'
       );
     }
     // Save session ID for later use
