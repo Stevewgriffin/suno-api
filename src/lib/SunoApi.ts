@@ -122,7 +122,24 @@ class SunoApi {
 
   public async init(): Promise<SunoApi> {
     //await this.getClerkLatestVersion();
-    await this.getAuthToken();
+    await this.private async getAuthToken() {
+  logger.info('Getting the session ID');
+  if (this.cookies.__session && !this.cookies.__client) {
+    try {
+      const payload = JSON.parse(Buffer.from(this.cookies.__session.split('.')[1], 'base64').toString());
+      if (payload.sid) { this.sid = payload.sid; return; }
+    } catch (e) { logger.warn('Failed to decode __session JWT'); }
+  }
+  const getSessionUrl = `${SunoApi.CLERK_BASE_URL}/v1/client?__clerk_api_version=2025-11-10&_clerk_js_version=${SunoApi.CLERK_VERSION}`;
+  const sessionResponse = await this.client.get(getSessionUrl, {
+    headers: { Authorization: this.cookies.__client }
+  });
+  if (!sessionResponse?.data?.response?.last_active_session_id) {
+    throw new Error('Failed to get session id, you may need to update the SUNO_COOKIE');
+  }
+  this.sid = sessionResponse.data.response.last_active_session_id;
+}
+;
     await this.keepAlive();
     return this;
   }
